@@ -1,0 +1,8 @@
+name: tinyllama
+backend: llama-cpp
+parameters:
+  model: tinyllama/tinyllama.gguf
+context_size: 4096
+threads: 8
+f16: true
+gpu_layers: 999
