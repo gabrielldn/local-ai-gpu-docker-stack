@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>LocalAI Chat (HTML único)</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #121820;
+    --muted: #6b7683;
+    --text: #e5ecf3;
+    --accent: #4cc2ff;
+    --accent-2: #7ef6c5;
+    --danger: #ff6b6b;
+    --warn: #ffd166;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+    background: linear-gradient(180deg, #0b0f14 0%, #0f141c 100%);
+    color: var(--text);
+    display: grid; grid-template-rows: auto 1fr auto; height: 100dvh;
+  }
+  header {
+    padding: 12px; background: rgba(255,255,255,0.02); backdrop-filter: blur(6px);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .row { display: grid; gap: 10px; grid-template-columns: 1.2fr 0.8fr 0.8fr 0.6fr auto auto; align-items: center; }
+  .row input[type="text"], .row input[type="password"] {
+    width: 100%; padding: 10px 12px; border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 10px; background: #0f141c; color: var(--text);
+  }
+  .row label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+  .col { display: flex; flex-direction: column; }
+  button {
+    border: 1px solid rgba(255,255,255,0.16); background: var(--panel); color: var(--text);
+    padding: 10px 14px; border-radius: 12px; cursor: pointer;
+  }
+  button.primary { border-color: transparent; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #001014; font-weight: 700; }
+  button.danger { background: #261417; border-color: #4a1e26; color: #ffb3c0; }
+  button:disabled { opacity: .6; cursor: not-allowed; }
+  main {
+    padding: 16px; overflow: auto;
+  }
+  .chat {
+    max-width: 980px; margin: 0 auto; display: grid; gap: 12px;
+  }
+  .msg {
+    padding: 14px 16px; border: 1px solid rgba(255,255,255,0.08); background: var(--panel);
+    border-radius: var(--radius); line-height: 1.45;
+    box-shadow: 0 3px 14px rgba(0,0,0,0.25);
+  }
+  .msg.user { border-left: 3px solid var(--accent); }
+  .msg.assistant { border-left: 3px solid var(--accent-2); white-space: pre-wrap; }
+  .msg .meta { font-size: 12px; color: var(--muted); margin-bottom: 6px; display: flex; gap: 8px; align-items: center; }
+  .tools { display: flex; gap: 8px; margin-top: 8px; }
+  .tools button { font-size: 12px; padding: 6px 10px; border-radius: 8px; }
+  footer {
+    padding: 12px; border-top: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); backdrop-filter: blur(6px);
+  }
+  .composer {
+    max-width: 980px; margin: 0 auto; display: grid; gap: 10px; grid-template-columns: 1fr auto auto;
+  }
+  textarea {
+    width: 100%; min-height: 60px; max-height: 220px; padding: 12px 14px; resize: vertical;
+    border: 1px solid rgba(255,255,255,0.14); border-radius: 12px; background: #0f141c; color: var(--text);
+  }
+  .muted { color: var(--muted); font-size: 12px; }
+  .top-actions { display: flex; gap: 8px; }
+  .pill { font-size: 12px; padding: 8px 10px; border-radius: 999px; background: #121a25; border: 1px solid rgba(255,255,255,0.12); color: var(--text); }
+  .switch { display: inline-flex; align-items: center; gap: 6px; }
+  .switch input { transform: translateY(1px); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="row">
+    <div class="col">
+      <label>Endpoint</label>
+      <input id="endpoint" type="text" placeholder="http://localhost:8081/v1/chat/completions" />
+    </div>
+    <div class="col">
+      <label>Modelo</label>
+      <input id="model" type="text" placeholder="tinyllama" />
+    </div>
+    <div class="col">
+      <label>API Key (Bearer)</label>
+      <input id="apikey" type="password" placeholder="sua_chave_aqui" />
+    </div>
+    <div class="col">
+      <label>Temperatura</label>
+      <input id="temperature" type="text" value="0.2" />
+    </div>
+    <div class="top-actions">
+      <label class="switch"><input id="streaming" type="checkbox" checked /> <span class="muted">Streaming</span></label>
+      <label class="switch"><input id="remember" type="checkbox" /> <span class="muted">Salvar configs</span></label>
+    </div>
+    <div class="top-actions">
+      <button id="newChat" title="Limpar histórico">Novo chat</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div id="chat" class="chat"></div>
+</main>
+
+<footer>
+  <div class="composer">
+    <textarea id="prompt" placeholder="Digite sua mensagem... (Shift+Enter = nova linha)"></textarea>
+    <button id="send" class="primary">Enviar</button>
+    <button id="stop" class="danger" disabled>Parar</button>
+  </div>
+  <div class="composer" style="grid-template-columns: 1fr;">
+    <small class="muted">Dica: não exponha sua API Key em produção. Este HTML é para uso local com LocalAI.</small>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const els = {
+    endpoint: document.getElementById('endpoint'),
+    model: document.getElementById('model'),
+    apikey: document.getElementById('apikey'),
+    temperature: document.getElementById('temperature'),
+    streaming: document.getElementById('streaming'),
+    remember: document.getElementById('remember'),
+    newChat: document.getElementById('newChat'),
+    chat: document.getElementById('chat'),
+    prompt: document.getElementById('prompt'),
+    send: document.getElementById('send'),
+    stop: document.getElementById('stop'),
+  };
+
+  // Defaults
+  const defaults = {
+    endpoint: 'http://localhost:8081/v1/chat/completions',
+    model: 'tinyllama',
+    temperature: '0.2'
+  };
+
+  // Load/save settings
+  const loadSettings = () => {
+    const s = JSON.parse(localStorage.getItem('localai_settings') || '{}');
+    els.endpoint.value = s.endpoint || defaults.endpoint;
+    els.model.value = s.model || defaults.model;
+    els.apikey.value = s.apikey || '';
+    els.temperature.value = s.temperature || defaults.temperature;
+    els.streaming.checked = s.streaming ?? true;
+    els.remember.checked = !!s.remember;
+  };
+  const saveSettings = () => {
+    if (!els.remember.checked) return localStorage.removeItem('localai_settings');
+    const s = {
+      endpoint: els.endpoint.value.trim(),
+      model: els.model.value.trim(),
+      apikey: els.apikey.value,
+      temperature: els.temperature.value.trim(),
+      streaming: els.streaming.checked,
+      remember: true
+    };
+    localStorage.setItem('localai_settings', JSON.stringify(s));
+  };
+
+  loadSettings();
+
+  // Chat state
+  let controller = null; // AbortController para streaming
+  const history = [];    // mensagens no padrão OpenAI
+
+  const scrollToBottom = () => {
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    });
+  };
+
+  const msgEl = (role, content) => {
+    const wrap = document.createElement('div');
+    wrap.className = `msg ${role}`;
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = role === 'user' ? 'Você' : 'Assistente';
+    const body = document.createElement('div');
+    body.className = 'body';
+    body.textContent = content;
+    const tools = document.createElement('div');
+    tools.className = 'tools';
+    const copy = document.createElement('button');
+    copy.textContent = 'Copiar';
+    copy.onclick = async () => {
+      try { await navigator.clipboard.writeText(body.textContent); copy.textContent = 'Copiado!'; setTimeout(()=>copy.textContent='Copiar', 1200); }
+      catch { copy.textContent = 'Falhou'; setTimeout(()=>copy.textContent='Copiar', 1200); }
+    };
+    tools.appendChild(copy);
+    wrap.appendChild(meta);
+    wrap.appendChild(body);
+    wrap.appendChild(tools);
+    return {wrap, body};
+  };
+
+  const addUserMessage = (text) => {
+    const { wrap } = msgEl('user', text);
+    els.chat.appendChild(wrap);
+    scrollToBottom();
+  };
+
+  const addAssistantMessage = (initial='') => {
+    const { wrap, body } = msgEl('assistant', initial);
+    els.chat.appendChild(wrap);
+    scrollToBottom();
+    return body; // retornamos o elemento para ir preenchendo no streaming
+  };
+
+  const setUIBusy = (busy) => {
+    els.send.disabled = busy;
+    els.stop.disabled = !busy;
+    els.prompt.disabled = busy;
+  };
+
+  const buildHeaders = () => {
+    const h = { 'Content-Type': 'application/json' };
+    const key = els.apikey.value.trim();
+    if (key) h['Authorization'] = 'Bearer ' + key; // OpenAI-like header
+    return h;
+  };
+
+  const buildBody = (userText, stream) => {
+    // monta o array de mensagens combinando histórico + nova entrada
+    const msgs = history.slice();
+    msgs.push({ role: 'user', content: userText });
+    return {
+      model: els.model.value.trim() || defaults.model,
+      temperature: parseFloat(els.temperature.value || '0.2'),
+      stream: !!stream,
+      messages: msgs
+    };
+  };
+
+  const send = async () => {
+    const userText = els.prompt.value.trim();
+    if (!userText) return;
+    const endpoint = els.endpoint.value.trim() || defaults.endpoint;
+
+    // UI
+    addUserMessage(userText);
+    els.prompt.value = '';
+    setUIBusy(true);
+    saveSettings();
+
+    // Atualiza histórico (só ao final confirmamos a resposta do assistente)
+    history.push({ role: 'user', content: userText });
+
+    // Elemento de resposta (preencheremos com streaming)
+    const assistantBody = addAssistantMessage('');
+
+    controller = new AbortController();
+    let usedStreaming = els.streaming.checked;
+
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: buildHeaders(),
+        body: JSON.stringify(buildBody(userText, usedStreaming)),
+        signal: controller.signal
+      });
+
+      // Se streaming não suportado/responder não-SSE, tratamos como normal
+      const contentType = res.headers.get('content-type') || '';
+      if (!usedStreaming || (!contentType.includes('text/event-stream') && !contentType.includes('application/x-ndjson'))) {
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error?.message || res.status + ' ' + res.statusText);
+        const text = j.choices?.[0]?.message?.content ?? '';
+        assistantBody.textContent = text;
+        history.push({ role: 'assistant', content: text });
+        setUIBusy(false);
+        scrollToBottom();
+        return;
+      }
+
+      // --- Streaming SSE (OpenAI-like) ---
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      let full = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Processa por blocos \n\n (SSE "event" boundary)
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+
+        for (const part of parts) {
+          if (!part.startsWith('data:')) continue;
+          const data = part.replace(/^data:\s*/, '').trim();
+          if (data === '[DONE]') continue;
+
+          try {
+            const obj = JSON.parse(data);
+            // OpenAI Chat Completions stream: choices[].delta.{role,content}
+            const delta = obj?.choices?.[0]?.delta?.content ?? '';
+            if (delta) {
+              full += delta;
+              assistantBody.textContent += delta;
+              scrollToBottom();
+            }
+          } catch (_) {
+            // ignora linhas não-JSON
+          }
+        }
+      }
+
+      history.push({ role: 'assistant', content: full });
+      setUIBusy(false);
+      scrollToBottom();
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        assistantBody.textContent += '\n\n[interrompido]';
+      } else {
+        assistantBody.textContent = '[erro] ' + (err.message || String(err));
+      }
+      setUIBusy(false);
+    } finally {
+      controller = null;
+    }
+  };
+
+  els.send.addEventListener('click', send);
+  els.prompt.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); els.send.click(); }
+  });
+
+  els.stop.addEventListener('click', () => {
+    if (controller) controller.abort();
+  });
+
+  els.newChat.addEventListener('click', () => {
+    history.length = 0;
+    els.chat.innerHTML = '';
+  });
+
+  window.addEventListener('beforeunload', saveSettings);
+})();
+</script>
+</body>
+</html>

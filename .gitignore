@@ -1,0 +1,9 @@
+# Ignora tudo dentro de models/
+models/*
+
+# Exceto a pasta tinyllama e seu conteúdo
+!models/tinyllama/
+!models/tinyllama/**
+
+# Exceto o arquivo model.yaml
+!models/model.yaml
